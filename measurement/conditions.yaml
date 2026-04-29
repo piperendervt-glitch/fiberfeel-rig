@@ -1,0 +1,57 @@
+# プレレジ §6「条件定義」の機械可読版。
+# 本ファイルは §6 の写しであり、プレレジ本文と乖離した場合はプレレジを正とする。
+# 順序は固定だが、実測時は §8.2 の random_seed で permutation する（実装は capture.py）。
+
+phase1_conditions:
+  - id: C-P1-01
+    jacket: intact
+    pdms: none
+    weight_g: 0
+    bend_radius_mm: 10
+  - id: C-P1-02
+    jacket: intact
+    pdms: PDMS-CLEAR
+    weight_g: 0
+    bend_radius_mm: 10
+  - id: C-P1-03
+    jacket: intact
+    pdms: PDMS-BLACK
+    weight_g: 0
+    bend_radius_mm: 10
+  - id: C-P1-04
+    jacket: stripped
+    pdms: none
+    weight_g: 0
+    bend_radius_mm: 10
+  - id: C-P1-05
+    jacket: stripped
+    pdms: PDMS-CLEAR
+    weight_g: 0
+    bend_radius_mm: 10
+  - id: C-P1-06
+    jacket: stripped
+    pdms: PDMS-BLACK
+    weight_g: 0
+    bend_radius_mm: 10
+
+control_conditions:
+  - id: C-CTRL-SHAM
+    desc: PDMS-CLEAR を 1mm スペーサで浮かせ非接触に
+    jacket: stripped
+    pdms: PDMS-CLEAR
+    contact: false
+    weight_g: 0
+  - id: C-CTRL-DARK
+    desc: LED OFF
+    led_on: false
+  - id: C-CTRL-BL
+    desc: 直線ファイバーベースライン（セッション内3回反復）
+    jacket: stripped
+    pdms: none
+    bent: false
+
+sampling:
+  frames_per_condition: 30
+  setup_repetitions_phase1: 1   # §8.5 ambiguous zone で 3 にエスカレーション
+  # random_seed は run_config.yaml 側に書く（測定直前確定）
+  ordering: "numpy.random.default_rng(seed).permutation(condition_ids)"

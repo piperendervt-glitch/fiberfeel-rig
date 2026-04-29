@@ -1,0 +1,22 @@
+# プレレジ §5.2 ROI 定義の確定値。
+# 直線ファイバー装着状態で 1 フレーム取得 → Hough 円検出 + 手動補正で確定。
+# 一度コミットしたら以後変更不可（凍結対象、§13）。
+
+roi:
+  # ファイバ端面の中心ピクセル座標（フレーム左上 = (0, 0), x が列, y が行）
+  cx: TBD
+  cy: TBD
+
+  # 円検出で得たファイバ端面の半径（ピクセル）
+  r_fiber_px: TBD
+
+  # 解析 ROI 半径 = r_fiber_px * shrink_factor（§5.2 で 0.8 と規定）
+  shrink_factor: 0.8
+
+  # 確定時のメタ情報（変更履歴の追跡用、参考値）
+  determined_from:
+    session_id: TBD
+    frame_filename: TBD
+    method: "Hough circle (cv2.HoughCircles) + manual correction"
+    determined_by: Robosheep
+    determined_at_iso: TBD

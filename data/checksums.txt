@@ -1,0 +1,4 @@
+# SHA-256 checksums for raw measurement archives.
+# Format (one per line):
+#   <sha256_hex>  <relative_path_to_archive>  <iso8601_utc_added>  <session_id>
+# Append-only. Do not edit existing lines (preregistration §8.6).
