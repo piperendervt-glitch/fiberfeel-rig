@@ -1,32 +1,25 @@
-"""RAW frame capture for fiberfeel-rig (preregistration §4 / §8.2 / §5.1).
+"""RAW frame capture for fiberfeel-rig.
 
-Acquires 12-bit Bayer RAW frames from a Raspberry Pi HQ Camera using
-picamera2, with controls fixed per the preregistration:
+Three modes:
 
-    AnalogueGain = 1.0
-    AwbEnable    = False
-    AeEnable     = False
-    ExposureTime = run_config.yaml: camera.ExposureTime_us
-    frame_rate   = run_config.yaml: camera.frame_rate_fps  (default 1 fps)
+* ``--mode shakedown`` — engineering verification, OUTSIDE the preregistration
+  scope. Skips the run_config.yaml TBD checks. Exposure and frame count come
+  from CLI flags. Frames are streamed and analyzed in-memory; saving to disk
+  is optional via ``--save-to``. Data acquired this way must NOT enter the
+  prereg §6 condition set or the §9 analysis pipeline.
 
-Condition ordering is randomized via numpy.random.default_rng(seed),
-where ``seed`` is taken from run_config.yaml: randomization.random_seed.
-The seed MUST be set in run_config.yaml and committed to git BEFORE
-this script is invoked (preregistration §8.2).
+* ``--mode baseline`` — acquires the 300-frame straight-fiber baseline that
+  determines σ_baseline / μ_baseline (preregistration §5.1).
 
-Output layout::
+* ``--mode phase1`` — randomized 6-condition phase-1 acquisition with the
+  control sandwich (preregistration §7 / §8.2).
 
-    data/raw/<session_id>/
-        manifest.json
-        baseline/                  # only if --mode baseline
-            frame_000000.dng
-            ...
-        <condition_id>/            # one directory per condition (e.g. C-P1-05)
-            rep_00/
-                frame_000000.dng
-                ...
-            rep_01/
-                ...
+Both ``baseline`` and ``phase1`` require run_config.yaml to be fully
+resolved (no TBD values), and write frames as numpy ``.npy`` arrays
+named ``<condition_id>_<frame_idx:03d>.npy`` under
+``data/raw/<session_id>/``. Per-frame metadata (capture time, exposure,
+gain, condition_id, session_id, sha256) is collected into
+``metadata.yaml`` in the same directory.
 """
 
 from __future__ import annotations
@@ -34,7 +27,6 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import hashlib
-import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -56,6 +48,17 @@ DEFAULT_CONDITIONS = REPO_ROOT / "measurement" / "conditions.yaml"
 BASELINE_FRAMES = 300
 # Preregistration §6: 30 frames per condition during phase 1.
 FRAMES_PER_CONDITION = 30
+# Synthetic condition_id used for the baseline-mode files.
+BASELINE_CONDITION_ID = "BASELINE"
+
+# Shakedown defaults / thresholds (engineering values, NOT preregistered).
+SHAKEDOWN_DEFAULT_EXPOSURE_US = 5000
+SHAKEDOWN_DEFAULT_FRAMES = 5
+SHAKEDOWN_FPS = 1.0
+SHAKEDOWN_ROI_SIDE = 200
+RAW_FULL_SCALE_12BIT = 4095
+SATURATION_FRACTION = 0.95
+LOW_BRIGHTNESS_FRACTION = 0.05
 
 
 def _utc_iso() -> str:
@@ -127,32 +130,50 @@ def _sha256_of_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def capture_frames(cam: "Picamera2", out_dir: Path, n_frames: int) -> list[dict]:
-    """Capture ``n_frames`` RAW frames into ``out_dir`` and return per-frame metadata."""
-    out_dir.mkdir(parents=True, exist_ok=True)
+def _capture_one(cam: "Picamera2") -> tuple[np.ndarray, dict]:
+    """Capture one frame, returning (raw_array, picamera2_metadata)."""
+    request = cam.capture_request()
+    try:
+        arr = np.asarray(request.make_array("raw"))
+        metadata = request.get_metadata()
+    finally:
+        request.release()
+    return arr, metadata
+
+
+def capture_condition(
+    cam: "Picamera2",
+    *,
+    session_dir: Path,
+    condition_id: str,
+    n_frames: int,
+    frame_idx_start: int = 0,
+) -> list[dict]:
+    """Capture ``n_frames`` and save each as ``<condition_id>_<frame_idx:03d>.npy``.
+
+    ``frame_idx_start`` lets callers stack multiple repetitions of the same
+    condition into one session_dir without filename collisions; rep_00 might
+    use 0..29, rep_01 then 30..59, and so on.
+    """
+    session_dir.mkdir(parents=True, exist_ok=True)
     cam.start()
     frames_meta: list[dict] = []
     try:
         for i in range(n_frames):
-            stem = f"frame_{i:06d}"
-            dng_path = out_dir / f"{stem}.dng"
-            # capture_file with a .dng extension produces an Adobe DNG of the RAW
-            # Bayer stream when the configuration includes a "raw" stream.
-            request = cam.capture_request()
-            try:
-                request.save_dng(str(dng_path))
-                metadata = request.get_metadata()
-            finally:
-                request.release()
+            frame_idx = frame_idx_start + i
+            arr, picam_meta = _capture_one(cam)
+            npy_path = session_dir / f"{condition_id}_{frame_idx:03d}.npy"
+            np.save(npy_path, arr)
             frames_meta.append(
                 {
-                    "index": i,
-                    "filename": dng_path.name,
+                    "condition_id": condition_id,
+                    "frame_idx": frame_idx,
+                    "filename": npy_path.name,
                     "captured_at_iso": _utc_iso(),
-                    "ExposureTime_us": metadata.get("ExposureTime"),
-                    "AnalogueGain": metadata.get("AnalogueGain"),
-                    "SensorTimestamp_ns": metadata.get("SensorTimestamp"),
-                    "sha256": _sha256_of_file(dng_path),
+                    "ExposureTime_us": picam_meta.get("ExposureTime"),
+                    "AnalogueGain": picam_meta.get("AnalogueGain"),
+                    "SensorTimestamp_ns": picam_meta.get("SensorTimestamp"),
+                    "sha256": _sha256_of_file(npy_path),
                 }
             )
     finally:
@@ -160,10 +181,16 @@ def capture_frames(cam: "Picamera2", out_dir: Path, n_frames: int) -> list[dict]
     return frames_meta
 
 
-def write_manifest(session_dir: Path, manifest: dict, filename: str = "manifest.json") -> None:
+def write_metadata(
+    session_dir: Path, metadata: dict, filename: str = "metadata.yaml"
+) -> Path:
     path = session_dir / filename
     with path.open("w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, ensure_ascii=False)
+        yaml.safe_dump(
+            metadata, f,
+            sort_keys=False, default_flow_style=False, allow_unicode=True,
+        )
+    return path
 
 
 def _operator_action_prompt(message: str) -> None:
@@ -187,7 +214,7 @@ def run_phase1(
     exposure_us = int(run_cfg["camera"]["ExposureTime_us"])
     cam = _build_picam(exposure_us, fps)
 
-    manifest: dict[str, Any] = {
+    metadata: dict[str, Any] = {
         "session_id": run_cfg["session"]["session_id"],
         "operator": run_cfg["session"]["operator"],
         "phase": "phase1",
@@ -195,12 +222,10 @@ def run_phase1(
         "random_seed": seed,
         "phase1_order": order,
         "camera": run_cfg["camera"],
-        "conditions": [],
+        "frames": [],
     }
 
     # §7: 冒頭・中央・末尾の C-CTRL-BL と冒頭末尾の C-CTRL-DARK / C-CTRL-SHAM。
-    # ここでは骨組みとして冒頭シーケンス → ランダム順 phase1 → 末尾シーケンスを定義。
-    # 中央 BL は phase1 の中点で挿入する。
     head_seq = ["C-CTRL-DARK", "C-CTRL-SHAM", "C-CTRL-BL"]
     tail_seq = ["C-CTRL-BL", "C-CTRL-SHAM", "C-CTRL-DARK"]
     mid_idx = len(order) // 2
@@ -212,35 +237,43 @@ def run_phase1(
         + [("control", c) for c in tail_seq]
     )
 
+    # frame_idx is global per (session, condition_id). Repetitions of the same
+    # condition (e.g. C-CTRL-BL appearing 3+ times) get contiguous indices
+    # rather than separate subdirectories — keeps filenames flat per the new
+    # naming convention <condition_id>_<frame_idx:03d>.npy.
+    next_idx: dict[str, int] = {}
     rep_count: dict[str, int] = {}
     for kind, cid in full_plan:
         spec = cond_by_id.get(cid) if kind == "phase1" else controls_by_id.get(cid)
         rep = rep_count.get(cid, 0)
         rep_count[cid] = rep + 1
-
-        target_dir = session_dir / cid / f"rep_{rep:02d}"
+        idx_start = next_idx.get(cid, 0)
+        idx_end = idx_start + FRAMES_PER_CONDITION - 1
 
         _operator_action_prompt(
-            f"Set up condition {cid}: {spec}\n"
-            f"        Output → {target_dir}"
+            f"Set up condition {cid} (rep {rep}): {spec}\n"
+            f"        Frames: {cid}_{idx_start:03d}.npy ... {cid}_{idx_end:03d}.npy"
         )
-        frames_meta = capture_frames(cam, target_dir, FRAMES_PER_CONDITION)
-
-        manifest["conditions"].append(
-            {
-                "kind": kind,
-                "condition_id": cid,
-                "repetition": rep,
-                "spec": spec,
-                "frames_dir": str(target_dir.relative_to(session_dir)),
-                "n_frames": len(frames_meta),
-                "frames": frames_meta,
-            }
+        frames_meta = capture_condition(
+            cam,
+            session_dir=session_dir,
+            condition_id=cid,
+            n_frames=FRAMES_PER_CONDITION,
+            frame_idx_start=idx_start,
         )
+        for fm in frames_meta:
+            fm["kind"] = kind
+            fm["repetition"] = rep
+            fm["condition_spec"] = spec
+        metadata["frames"].extend(frames_meta)
+        next_idx[cid] = idx_start + FRAMES_PER_CONDITION
 
-    manifest["finished_at_iso"] = _utc_iso()
-    write_manifest(session_dir, manifest, run_cfg["output"]["manifest_filename"])
-    return manifest
+    metadata["finished_at_iso"] = _utc_iso()
+    write_metadata(
+        session_dir, metadata,
+        run_cfg["output"].get("metadata_filename", "metadata.yaml"),
+    )
+    return metadata
 
 
 def run_baseline(run_cfg: dict[str, Any], session_dir: Path) -> dict:
@@ -249,7 +282,7 @@ def run_baseline(run_cfg: dict[str, Any], session_dir: Path) -> dict:
     exposure_us = int(run_cfg["camera"]["ExposureTime_us"])
     cam = _build_picam(exposure_us, fps)
 
-    manifest: dict[str, Any] = {
+    metadata: dict[str, Any] = {
         "session_id": run_cfg["session"]["session_id"],
         "operator": run_cfg["session"]["operator"],
         "phase": "baseline",
@@ -261,32 +294,141 @@ def run_baseline(run_cfg: dict[str, Any], session_dir: Path) -> dict:
         "Mount straight fiber (no bend, no PDMS, no weight). "
         "Confirm LED warmed up >= 30 minutes."
     )
-    frames_meta = capture_frames(cam, session_dir / "baseline", BASELINE_FRAMES)
+    frames_meta = capture_condition(
+        cam,
+        session_dir=session_dir,
+        condition_id=BASELINE_CONDITION_ID,
+        n_frames=BASELINE_FRAMES,
+    )
 
-    manifest.update(
+    metadata.update(
         {
-            "n_frames": len(frames_meta),
             "frames": frames_meta,
+            "n_frames": len(frames_meta),
             "finished_at_iso": _utc_iso(),
         }
     )
-    write_manifest(session_dir, manifest, run_cfg["output"]["manifest_filename"])
-    return manifest
+    write_metadata(
+        session_dir, metadata,
+        run_cfg["output"].get("metadata_filename", "metadata.yaml"),
+    )
+    return metadata
+
+
+def run_shakedown(
+    *,
+    exposure_us: int,
+    n_frames: int,
+    save_to: Path | None = None,
+    fps: float = SHAKEDOWN_FPS,
+    roi_side: int = SHAKEDOWN_ROI_SIDE,
+) -> None:
+    """Engineering shakedown — OUTSIDE preregistration scope.
+
+    Captures ``n_frames`` and prints per-frame max / mean / center-ROI stats
+    plus saturation and low-brightness warnings against 12-bit full scale.
+    Saves arrays only when ``save_to`` is supplied. Data from this mode must
+    not feed §6 conditions or the §9 analysis pipeline.
+    """
+    cam = _build_picam(exposure_us, fps)
+    if save_to is not None:
+        save_to.mkdir(parents=True, exist_ok=True)
+
+    sat_threshold = RAW_FULL_SCALE_12BIT * SATURATION_FRACTION
+    low_threshold = RAW_FULL_SCALE_12BIT * LOW_BRIGHTNESS_FRACTION
+    half = roi_side // 2
+
+    print("[SHAKEDOWN] engineering mode — OUTSIDE preregistration scope.", flush=True)
+    print(
+        f"[SHAKEDOWN] exposure={exposure_us}us  frames={n_frames}  "
+        f"save_to={save_to}  roi={roi_side}x{roi_side}",
+        flush=True,
+    )
+    print(
+        f"[SHAKEDOWN] thresholds (12-bit full={RAW_FULL_SCALE_12BIT}): "
+        f"saturation if max > {sat_threshold:.0f}; "
+        f"low-brightness if mean < {low_threshold:.1f}",
+        flush=True,
+    )
+
+    cam.start()
+    try:
+        for i in range(n_frames):
+            arr, _picam_meta = _capture_one(cam)
+            # ROI = central roi_side x roi_side region of the first 2 axes.
+            h, w = arr.shape[:2]
+            cy, cx = h // 2, w // 2
+            y0, y1 = max(0, cy - half), min(h, cy + half)
+            x0, x1 = max(0, cx - half), min(w, cx + half)
+            roi = arr[y0:y1, x0:x1]
+
+            mx = float(arr.max())
+            mn = float(arr.mean())
+            roi_mean = float(roi.mean())
+            roi_sum = float(roi.sum())
+
+            warnings = []
+            if mx > sat_threshold:
+                warnings.append(f"SATURATION (max={mx:.0f} > {sat_threshold:.0f})")
+            if mn < low_threshold:
+                warnings.append(f"LOW_BRIGHTNESS (mean={mn:.1f} < {low_threshold:.1f})")
+            warn_str = ("  WARN: " + "; ".join(warnings)) if warnings else ""
+
+            print(
+                f"[frame {i:03d}] shape={tuple(arr.shape)} dtype={arr.dtype} "
+                f"max={mx:.0f} mean={mn:.1f}  roi(mean={roi_mean:.1f}, sum={roi_sum:.0f})"
+                f"{warn_str}",
+                flush=True,
+            )
+
+            if save_to is not None:
+                p = save_to / f"shakedown_{i:03d}.npy"
+                np.save(p, arr)
+    finally:
+        cam.stop()
+
+    print(
+        "[SHAKEDOWN] done. Reminder: log results in your engineering notebook; "
+        "this data MUST NOT enter §6 conditions or the §9 analysis pipeline.",
+        flush=True,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="fiberfeel-rig RAW capture")
     parser.add_argument(
         "--mode",
-        choices=("baseline", "phase1"),
+        choices=("shakedown", "baseline", "phase1"),
         required=True,
-        help="baseline = 300-frame sigma_baseline acquisition (§5.1); "
-             "phase1 = randomized 6-condition acquisition (§7).",
+        help=(
+            "shakedown = engineering check, OUTSIDE prereg scope; "
+            "baseline = 300-frame sigma_baseline acquisition (§5.1); "
+            "phase1 = randomized 6-condition acquisition (§7)."
+        ),
     )
-    parser.add_argument("--run-config", type=Path, default=DEFAULT_RUN_CONFIG)
-    parser.add_argument("--conditions", type=Path, default=DEFAULT_CONDITIONS)
+    parser.add_argument("--run-config", type=Path, default=DEFAULT_RUN_CONFIG,
+                        help="(baseline / phase1) run_config.yaml path")
+    parser.add_argument("--conditions", type=Path, default=DEFAULT_CONDITIONS,
+                        help="(phase1) conditions.yaml path")
+
+    # shakedown-only options (ignored in baseline / phase1).
+    parser.add_argument("--exposure-us", type=int, default=SHAKEDOWN_DEFAULT_EXPOSURE_US,
+                        help="(shakedown) exposure in microseconds, default 5000")
+    parser.add_argument("--frames", type=int, default=SHAKEDOWN_DEFAULT_FRAMES,
+                        help="(shakedown) number of frames to capture, default 5")
+    parser.add_argument("--save-to", type=Path, default=None,
+                        help="(shakedown) optional dir to save .npy frames; if omitted, no files written")
     args = parser.parse_args(argv)
 
+    if args.mode == "shakedown":
+        run_shakedown(
+            exposure_us=args.exposure_us,
+            n_frames=args.frames,
+            save_to=args.save_to,
+        )
+        return 0
+
+    # baseline / phase1 path: enforce the prereg's pre-measurement contract.
     run_cfg = load_run_config(args.run_config)
     conditions_cfg = load_conditions(args.conditions)
 

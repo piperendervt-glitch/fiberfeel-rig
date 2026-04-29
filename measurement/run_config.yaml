@@ -30,6 +30,8 @@ baseline:
   baseline_timestamp_iso: TBD
 
 # 出力先（capture.py がここにフレームを書く）
+# RAW フレームは <raw_dir>/<session_id>/<condition_id>_<frame_idx:03d>.npy として保存
+# メタデータは <raw_dir>/<session_id>/<metadata_filename> に集約
 output:
   raw_dir: data/raw          # data/raw/<session_id>/ 配下に保存
-  manifest_filename: manifest.json
+  metadata_filename: metadata.yaml

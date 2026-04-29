@@ -197,21 +197,44 @@ def load_baseline_sigma(run_config_path: str | Path) -> tuple[float, float]:
     return float(bl["sigma_baseline"]), float(bl["mu_baseline"])
 
 
-def load_session_frames(session_dir: str | Path) -> dict[str, dict[int, list[np.ndarray]]]:
-    """Discover per-condition / per-repetition frame arrays under ``session_dir``.
+def load_session_frames(session_dir: str | Path) -> dict[str, list[np.ndarray]]:
+    """Discover per-condition frame arrays under ``session_dir``.
 
-    Returns a nested mapping ``{condition_id: {rep_index: [frame_ndarray, ...]}}``.
+    Reads files named ``<condition_id>_<frame_idx:03d>.npy`` (the on-disk
+    layout produced by ``measurement/capture.py``) and groups by condition_id.
+    Frames within each condition are returned in ascending frame_idx order;
+    repetitions of the same condition are concatenated since the new naming
+    scheme uses contiguous frame indices across reps.
 
-    NOTE: actual RAW (.dng) decoding is intentionally not implemented here —
-    decoding 12-bit Bayer DNGs requires a libraw / rawpy dependency that
-    we do not want to pin until the lab box is finalized. Stub out and
-    raise so callers cannot silently get empty data.
+    Returns:
+        Mapping ``condition_id -> [frame ndarray, ...]``. ``condition_id`` is
+        the literal prefix used in the filename (e.g. ``"C-P1-05"``,
+        ``"C-CTRL-BL"``, ``"BASELINE"``).
+
+    Raises:
+        FileNotFoundError: if ``session_dir`` does not exist or is not a directory.
     """
-    raise NotImplementedError(
-        "RAW (.dng) decoding is not yet wired up. Implement once the rawpy / "
-        "libcamera-tools dependency is settled, then return the nested dict "
-        "described in this docstring."
-    )
+    session_dir = Path(session_dir)
+    if not session_dir.is_dir():
+        raise FileNotFoundError(f"Session directory not found: {session_dir}")
+
+    by_cond: dict[str, list[tuple[int, np.ndarray]]] = {}
+    for npy_path in session_dir.glob("*.npy"):
+        stem = npy_path.stem
+        cond_id, sep, frame_idx_str = stem.rpartition("_")
+        if not sep:
+            # filename without an underscore — not in the expected format, skip.
+            continue
+        try:
+            frame_idx = int(frame_idx_str)
+        except ValueError:
+            continue
+        by_cond.setdefault(cond_id, []).append((frame_idx, np.load(npy_path)))
+
+    return {
+        cond_id: [arr for _, arr in sorted(frames, key=lambda kv: kv[0])]
+        for cond_id, frames in by_cond.items()
+    }
 
 
 __all__ = [
