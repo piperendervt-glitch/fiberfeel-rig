@@ -69,6 +69,12 @@ data/raw/**
 *.tar.zst
 *.zip
 
+# --- 3D print artifacts (regenerated from .scad sources) ---
+hardware/*.stl
+hardware/*.3mf
+hardware/*.gcode
+hardware/*.gcode.3mf
+
 # --- OS generated ---
 # macOS
 .DS_Store
