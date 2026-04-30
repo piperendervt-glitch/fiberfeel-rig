@@ -164,7 +164,7 @@ module camera_fiber_coupler_base() {
         // PCB を後ろ壁前面に密着させる前提：
         //   PCB 中心 y = plate_y / 2 = 30、PCB 底面 z = plate_z = 4。
         //   穴中心 = PCB エッジから hq_mount_offset_mm、ピッチ hq_mount_pitch_mm。
-        //   絶対座標：y ∈ {17.25, 42.75}, z ∈ {10.25, 35.75}。
+        //   絶対座標：y ∈ {15, 45}, z ∈ {10.25, 40.25}（pitch 30mm）。
         for (dy = [-hq_mount_pitch_mm / 2, hq_mount_pitch_mm / 2])
             for (zc = [plate_z + hq_mount_offset_mm,
                        plate_z + hq_mount_offset_mm + hq_mount_pitch_mm])
