@@ -17,7 +17,7 @@ lead_zagri_d       = 7.0;
 side_monitor_d     = 1.5;
 
 // M3 ナットトラップ（側面に配置、POF 中心軸を避ける位置）
-nut_trap_z         = 14;     // POF 領域内、軸を貫通させても POF 穴 (φ1.2) と干渉しない位置
+nut_trap_z         = 14;     // POF 領域内、軸を貫通させても POF 穴 (φ1.5) と干渉しない位置
 nut_across_flats   = 6.5;    // M3 ナットの二面幅
 nut_pocket_depth   = 2.5;    // ナット厚
 m3_clearance_d     = 3.4;    // M3 ねじ通し
@@ -39,9 +39,10 @@ module led_fiber_coupler() {
             cylinder(d = lead_zagri_d, h = led_lead_clearance_mm + eps);
 
         // --- POF 側 (z = coupler_l 端面) ---
-        // POF チャネル φ1.2 × 10mm（LED 端面と突き当たる）
+        // POF チャネル φ1.5 × 10mm（LED 端面と突き当たる）
+        // 縦穴は熱収縮で収縮しがちなため、LED 側だけ穴径を大きく取る。
         translate([0, 0, coupler_l - pof_side_l])
-            cylinder(d = pof_channel_width_mm, h = pof_side_l + eps);
+            cylinder(d = pof_channel_width_led_side_mm, h = pof_side_l + eps);
 
         // --- 側面の光モニタ穴（任意）---
         // LED ↔ POF 接合面付近を視認できる位置（z = coupler_l/2 = 9）。

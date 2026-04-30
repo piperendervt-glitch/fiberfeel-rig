@@ -159,6 +159,21 @@ module camera_fiber_coupler_base() {
                     d = m3_clearance_d,
                     h = plate_z + rail_height + 2 * eps
                 );
+
+        // --- HQ Camera M12 PCB 取り付け穴（後ろ壁を X 方向に貫通）---
+        // PCB を後ろ壁前面に密着させる前提：
+        //   PCB 中心 y = plate_y / 2 = 30、PCB 底面 z = plate_z = 4。
+        //   穴中心 = PCB エッジから hq_mount_offset_mm、ピッチ hq_mount_pitch_mm。
+        //   絶対座標：y ∈ {17.25, 42.75}, z ∈ {10.25, 35.75}。
+        for (dy = [-hq_mount_pitch_mm / 2, hq_mount_pitch_mm / 2])
+            for (zc = [plate_z + hq_mount_offset_mm,
+                       plate_z + hq_mount_offset_mm + hq_mount_pitch_mm])
+                translate([-eps, plate_y / 2 + dy, zc])
+                    rotate([0, 90, 0])
+                        cylinder(
+                            d = hq_mount_hole_d_mm,
+                            h = back_wall_t + 2 * eps
+                        );
     }
 }
 
