@@ -47,6 +47,20 @@ hq_mount_pitch_mm = 30.0;       // M2.5 穴の縦・横ピッチ（実測値）
 hq_mount_hole_d_mm = 3.1;       // M2.5 通し穴径（クリアランス＋印刷収縮余裕込み）
 hq_mount_offset_mm = 6.25;      // PCB エッジから穴中心
 
+// --- 遮光ボックス ---
+enclosure_outer_x_mm = 180;
+enclosure_outer_y_mm = 180;
+enclosure_outer_z_mm = 100;
+enclosure_wall_mm = 1.6;          // 壁厚（4 perimeters @ 0.4mm nozzle）
+enclosure_floor_mm = 2.0;         // 底厚
+enclosure_lid_thickness_mm = 2.0; // 蓋の厚さ
+enclosure_lid_lip_mm = 5.0;       // 蓋の被せ深さ
+enclosure_lid_clearance_mm = 0.3; // 蓋と本体の遊び
+
+// ケーブル通し穴（迷光対策で L 字パス）
+cable_pass_diameter_mm = 12;      // ケーブル束を通す穴径
+cable_pass_count = 2;             // 必要な穴数（FFC + 電源）
+
 // --- 共通 ---
 default_wall_mm = 2.0;
 $fn = 60;
