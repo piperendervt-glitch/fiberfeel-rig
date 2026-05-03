@@ -108,3 +108,19 @@ Phase 0 hardware construction history (summarized):
 - enclosure_lid was redesigned to remove handle through-hole
 - σ_baseline measurement is the final Phase 0 step before
   prereg-v1.1-frozen and Phase 1 launch
+
+---
+
+## 2026-05-03 17:28: テンプレート違反訂正
+- 逸脱内容：直前のエントリ（σ_baseline measurement condition deviation, commit e61985f）が冒頭ルール「テンプレート逸脱は禁止」に違反したため、訂正として直後にテンプレート準拠版を追記する
+- 理由：技術的詳細を盛り込もうとして既存テンプレートを無視したため。既存エントリは「追記専用」ルールにより削除しないが、SBCE 規律として正式形式での記録を併存させる
+- 影響範囲：deviations.md の運用上のみ。前エントリの技術的内容は次エントリに要約版で引き継ぐ
+- 担当：Robosheep
+
+---
+
+## 2026-05-03 17:28: σ_baseline 測定構成の逸脱
+- 逸脱内容：σ_baseline / μ_baseline 測定を、§5.1 が要求する「直線ファイバー」ではなく bend_jig (R=10mm) 装着状態で実施する。POF は bend_jig を通って曲がった状態のまま、PDMS / gel 無し、無加重、LED on、enclosure 閉、ExposureTime_us=2000、300 フレーム × 1 fps で取得する
+- 理由：Phase 1 全条件 (C-P1-01..06) は bend_jig 装着構成で実施されるため、同一構成で測定したノイズフロアの方が effect size 評価に直接的。直線ファイバーを再現性よく保持する物理ジグが存在しない
+- 影響範囲：σ_baseline の運用的定義のみ。§10 判定ルール、仮説 H0–H4、条件定義 (C-P1-01..06, C-CTRL-*) は不変。詳細は commit e61985f のエントリ参照
+- 担当：Robosheep
