@@ -132,3 +132,11 @@ Phase 0 hardware construction history (summarized):
 - 理由：「ROI 輝度」がプレレジに明文化されていない。Phase 0 露光時間スイープ実測（100/500/1000/1500/2000/3000/5000μs）で、フレーム max が 30-70% に入るのは 1500μs (63%) のみ。1000μs (24%) は下限割れ、2000μs (82-88%) は上限超過。1500μs を選定し、ExposureTime_us = 1500 で確定する
 - 影響範囲：§4 ExposureTime_us = 1500 で確定。§5.1 σ_baseline 測定および全 Phase 1 測定で使用。仮説、決定ルール、条件定義は不変
 - 担当：Robosheep
+
+---
+
+## 2026-05-03 20:26: §4 LED 安定性要件の運用逸脱と装置改修方針
+- 逸脱内容：プレレジ §4 hardware.light_source.stability_requirement「30分連続点灯後の出力ドリフト < 1%/hour」を Phase 0 ベースライン測定（session01: +3.43%/hour、session02 (2h warmup): +2.87%/hour）で違反した。LM317 + 51Ω 定電流駆動への装置改修により改善を試み、session03 で再評価する
+- 理由：現状の Arduino + 150Ω 直列抵抗は定電圧駆動であり、LED 順方向電圧 Vf の温度依存性によるドリフトが発生する。プレレジ §4 が指定する「定電流 (LM317 または専用 IC)」への移行が本質的解決。session02 で 2 時間ウォームアップが drift rate を 16% しか改善できないことが実測で確定し、ウォームアップ単独での §4 達成は困難と判断
+- 影響範囲：σ_baseline / μ_baseline は LM317 化後の session03 で確定する。§10 判定ルール、仮説 H0–H4、§6 条件定義は不変。session01 / session02 は engineering log として保持、Phase 1 解析パイプラインには使用しない
+- 担当：Robosheep
