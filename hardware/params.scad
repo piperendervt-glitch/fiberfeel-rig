@@ -21,6 +21,14 @@ led_diameter_mm = 5.1;                        // 5mm砲弾型 + クリアラン�
 led_body_depth_mm = 8.0;                      // LED本体（リード除く）の埋め込み深さ
 led_lead_clearance_mm = 5.0;                  // リード逃げの空間
 
+// --- LED back cap（led_fiber_coupler の LED 側穴を密閉する遮光蓋）---
+led_back_cap_diameter_mm           = 15.0;    // led_fiber_coupler 外径と同じ
+led_back_cap_thickness_mm          = 5.0;     // 円盤厚
+led_back_cap_lead_hole_diameter_mm = 1.2;     // LED リード線通し穴
+led_back_cap_lead_hole_pitch_mm    = 2.54;    // 標準 0.1" ピッチ
+led_back_cap_press_fit_diameter_mm = 5.1;     // led_fiber_coupler の LED 穴と同径
+led_back_cap_press_fit_depth_mm    = 2.0;     // 圧入突起の高さ
+
 // --- ゲル/PDMS パッド ---
 pad_size_mm = 30;                             // 30 x 30 mm
 pad_thickness_mm = 3;                         // 3 mm 厚

@@ -11,6 +11,7 @@
 | `bend_jig_r10.scad` | POF を R=10mm の U字（180°）に拘束する曲げ治具 | 60 × 40 × 6 mm、溝 `pof_channel_width_mm × pof_channel_depth_mm` |
 | `gel_mold.scad` | ゲル/PDMSパッド成形モールド | 38 × 38 × 7 mm、キャビティ 30 × 30 × 3 mm、抜き勾配 1° |
 | `led_fiber_coupler.scad` | 5mm 砲弾型 LED と POF 端面を同軸に保持 | φ15 × 18 mm |
+| `led_back_cap.scad` | LED 砲弾の根元を覆い、`led_fiber_coupler` の LED 穴を底面側から密閉する遮光蓋 | φ15 × 5 mm + 圧入突起 φ5.1 × 2 mm |
 | `camera_fiber_coupler.scad` | Pi HQ Camera M12 + ファイバーホルダ（同ファイル内に2モジュール） | ベース 120 × 60 × 4 mm、ホルダ 25 × 25 × 30 mm |
 | `weight_guide.scad` | ゲルパッド上に錘を中心配置するガイド | 35 × 35 × 7 mm、凹み φ25 × 5 mm |
 | `enclosure.scad` | 遮光ボックス本体 + 蓋（同ファイル内に2モジュール、`display_mode` で出力切替） | 外形 180 × 180 × 100 mm、壁 1.6 mm、蓋 厚 2 mm + lip 5 mm |
@@ -34,6 +35,7 @@
 | `bend_jig_r10.scad` | 上面（U字溝側）を上向き。サポート不要。|
 | `gel_mold.scad` | 開口部を上向き、底面 build plate 密着。|
 | `led_fiber_coupler.scad` | 軸を垂直に立て、LED 挿入側を上にして印刷。|
+| `led_back_cap.scad` | 円盤を build plate に密着、圧入突起を上向き。サポート不要。黒フィラメント + infill 50%↑ 推奨。|
 | `camera_fiber_coupler.scad` | ベースはプレートをフラットに。ホルダは POF 穴を水平にして真円度確保。|
 | `weight_guide.scad` | 凹み側を上に。|
 | `enclosure.scad` | 本体・蓋とも開口部を上向き。サポート不要。`display_mode = 0` で本体、`= 1` で蓋を STL エクスポート。|
@@ -44,8 +46,9 @@ Phase 0 着手のための最小セット（先印刷）：
 
 1. `bend_jig_r10.scad`（30 分）
 2. `led_fiber_coupler.scad`（20 分）
-3. `camera_fiber_coupler.scad` ベース + ファイバーホルダ（45 分）
-4. `gel_mold.scad` ×3（並列、60 分）
+3. `led_back_cap.scad`（5 分、`led_fiber_coupler` とセットで使う）
+4. `camera_fiber_coupler.scad` ベース + ファイバーホルダ（45 分）
+5. `gel_mold.scad` ×3（並列、60 分）
 
 合計約 2.5 時間。一晩走らせれば翌朝に揃う。
 
@@ -61,6 +64,16 @@ Phase 0 着手のための最小セット（先印刷）：
 > PDMS-CLEAR / 黒染料入り / 白染料入り の 3 種を同時硬化したい時は、
 > 既定の `gel_mold();` をコメントアウトして `gel_mold_trio();` を有効化する。
 
+## 組み立て手順
+
+### Phase 0 装置組立 — LED back cap 装着
+
+1. LED 砲弾を `led_fiber_coupler` の LED 穴（z=0 端面、底面側）に挿入する。
+2. LED のリード線 2 本を `led_back_cap` の Ø1.2mm 穴（ピッチ 2.54mm）に通す。
+3. `led_back_cap` の圧入部（上面突起）を `led_fiber_coupler` の LED 穴に押し込み、円盤フランジが coupler 底面に密着する位置まで進める。
+4. LED が完全に固定され、リード線だけが back cap の下面から出ている状態を確認する。
+5. リード線を Arduino 側の 5V / GND（150Ω 抵抗経由）に接続する。
+
 ## 組立確認チェックリスト
 
 - [ ] POF が `bend_jig_r10` の溝に滑らかに収まる（押し込み時にコア破損なし）
@@ -72,6 +85,9 @@ Phase 0 着手のための最小セット（先印刷）：
 - [ ] 蓋が本体にスッと被さり、外光が漏れないこと
 - [ ] ケーブル通し穴がバッフル板で迷光遮蔽されていること
 - [ ] 底面 M3 ナットトラップにナットが収まること
+- [ ] `led_back_cap` が `led_fiber_coupler` の LED 穴に圧入できる
+- [ ] LED リード線が back cap の小穴を通って外部に出ている
+- [ ] back cap 装着後、coupler 底面から LED 光が漏れないこと（暗室で目視確認）
 
 ## 既知の調整ポイント
 
