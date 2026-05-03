@@ -49,11 +49,6 @@ baffle_offset_in   = 5;                             // 穴の前 5mm 内側
 // 蓋 lip
 lid_lip_thickness  = enclosure_wall_mm;             // 凸枠の径方向厚み
 
-// 蓋取手凹み
-handle_w           = 60;
-handle_h           = 30;
-handle_d           = 3;
-
 // ----------------------------------------------------------------
 // ヘルパ：角丸ボックス
 //   底面 z=0 から高さ z、底面サイズ x×y、角丸半径 r。
@@ -176,59 +171,49 @@ module enclosure_body() {
 module enclosure_lid() {
     // 蓋座標：メインプレート底面が z=0、上面が z=lid_thickness。
     // lip はメインプレートの下に伸びる（z=-lid_lip..0）。
-    difference() {
-        union() {
-            // メインプレート
-            rounded_box(
-                enclosure_outer_x_mm,
-                enclosure_outer_y_mm,
-                enclosure_lid_thickness_mm,
-                corner_r
-            );
+    union() {
+        // メインプレート
+        rounded_box(
+            enclosure_outer_x_mm,
+            enclosure_outer_y_mm,
+            enclosure_lid_thickness_mm,
+            corner_r
+        );
 
-            // lip（下方向に張り出す凸枠）
-            translate([
-                enclosure_wall_mm + enclosure_lid_clearance_mm,
-                enclosure_wall_mm + enclosure_lid_clearance_mm,
-                -enclosure_lid_lip_mm
-            ])
-                difference() {
-                    // lip 外形
+        // lip（下方向に張り出す凸枠）
+        translate([
+            enclosure_wall_mm + enclosure_lid_clearance_mm,
+            enclosure_wall_mm + enclosure_lid_clearance_mm,
+            -enclosure_lid_lip_mm
+        ])
+            difference() {
+                // lip 外形
+                rounded_box(
+                    enclosure_outer_x_mm
+                        - 2 * (enclosure_wall_mm + enclosure_lid_clearance_mm),
+                    enclosure_outer_y_mm
+                        - 2 * (enclosure_wall_mm + enclosure_lid_clearance_mm),
+                    enclosure_lid_lip_mm + eps,
+                    max(corner_r - enclosure_wall_mm
+                        - enclosure_lid_clearance_mm, 0.5)
+                );
+                // 中空（lip は枠形状）
+                translate([lid_lip_thickness, lid_lip_thickness, -eps])
                     rounded_box(
                         enclosure_outer_x_mm
-                            - 2 * (enclosure_wall_mm + enclosure_lid_clearance_mm),
+                            - 2 * (enclosure_wall_mm
+                                   + enclosure_lid_clearance_mm
+                                   + lid_lip_thickness),
                         enclosure_outer_y_mm
-                            - 2 * (enclosure_wall_mm + enclosure_lid_clearance_mm),
-                        enclosure_lid_lip_mm + eps,
+                            - 2 * (enclosure_wall_mm
+                                   + enclosure_lid_clearance_mm
+                                   + lid_lip_thickness),
+                        enclosure_lid_lip_mm + 3 * eps,
                         max(corner_r - enclosure_wall_mm
-                            - enclosure_lid_clearance_mm, 0.5)
+                            - enclosure_lid_clearance_mm
+                            - lid_lip_thickness, 0.5)
                     );
-                    // 中空（lip は枠形状）
-                    translate([lid_lip_thickness, lid_lip_thickness, -eps])
-                        rounded_box(
-                            enclosure_outer_x_mm
-                                - 2 * (enclosure_wall_mm
-                                       + enclosure_lid_clearance_mm
-                                       + lid_lip_thickness),
-                            enclosure_outer_y_mm
-                                - 2 * (enclosure_wall_mm
-                                       + enclosure_lid_clearance_mm
-                                       + lid_lip_thickness),
-                            enclosure_lid_lip_mm + 3 * eps,
-                            max(corner_r - enclosure_wall_mm
-                                - enclosure_lid_clearance_mm
-                                - lid_lip_thickness, 0.5)
-                        );
-                }
-        }
-
-        // 上面の取手凹み（中心配置、深さ handle_d）
-        translate([
-            (enclosure_outer_x_mm - handle_w) / 2,
-            (enclosure_outer_y_mm - handle_h) / 2,
-            enclosure_lid_thickness_mm - handle_d
-        ])
-            cube([handle_w, handle_h, handle_d + eps]);
+            }
     }
 }
 
