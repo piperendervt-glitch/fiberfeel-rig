@@ -3,7 +3,7 @@
 # 確定値が入った状態で v1.1 タグ（prereg-v1.1-frozen）を打つ。
 
 session:
-  session_id: 2026-05-03_baseline_session01            # 例: 2026-04-29_phase1_session01
+  session_id: 2026-05-03_baseline_session02            # 例: 2026-04-29_phase1_session01
   operator: Robosheep
   phase: phase1              # phase1 | phase2 | phase3
   start_time_iso: TBD        # 測定開始時刻（ISO 8601, UTC）
