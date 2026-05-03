@@ -65,18 +65,41 @@ def _utc_iso() -> str:
     return _dt.datetime.now(tz=_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def load_run_config(path: Path = DEFAULT_RUN_CONFIG) -> dict[str, Any]:
+# Per-mode TBD checks. Preregistration §13 fixes different non-frozen values
+# at different times: ExposureTime_us before any measurement, random_seed
+# immediately before phase 1, and sigma_baseline / mu_baseline only after
+# the baseline run. A baseline-mode invocation must not require fields that
+# §13 explicitly defers until after baseline acquisition.
+REQUIRED_FIELDS_BY_MODE: dict[str, tuple[str, ...]] = {
+    "baseline": (
+        "session.session_id",
+        "camera.ExposureTime_us",
+    ),
+    "phase1": (
+        "session.session_id",
+        "camera.ExposureTime_us",
+        "randomization.random_seed",
+        "baseline.sigma_baseline",
+        "baseline.mu_baseline",
+        "baseline.baseline_session_id",
+        "baseline.baseline_timestamp_iso",
+    ),
+}
+
+
+def load_run_config(
+    path: Path = DEFAULT_RUN_CONFIG, *, mode: str
+) -> dict[str, Any]:
     with path.open(encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
-    # Refuse to run if any value the preregistration says must be fixed
-    # before measurement is still TBD.
-    required = {
-        "session.session_id": cfg["session"]["session_id"],
-        "camera.ExposureTime_us": cfg["camera"]["ExposureTime_us"],
-        "randomization.random_seed": cfg["randomization"]["random_seed"],
-    }
-    missing = [k for k, v in required.items() if v == "TBD" or v is None]
+    missing: list[str] = []
+    for dotted in REQUIRED_FIELDS_BY_MODE.get(mode, ()):
+        value: Any = cfg
+        for key in dotted.split("."):
+            value = value[key]
+        if value == "TBD" or value is None:
+            missing.append(dotted)
     if missing:
         raise SystemExit(
             "run_config.yaml has unresolved TBD fields (commit values first):\n  "
@@ -545,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # baseline / phase1 path: enforce the prereg's pre-measurement contract.
-    run_cfg = load_run_config(args.run_config)
+    run_cfg = load_run_config(args.run_config, mode=args.mode)
     conditions_cfg = load_conditions(args.conditions)
 
     session_id = run_cfg["session"]["session_id"]
