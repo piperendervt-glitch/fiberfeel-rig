@@ -105,8 +105,11 @@ def _build_picam(exposure_us: int, fps: float) -> "Picamera2":
         )
     cam = Picamera2()
     # RAW (12-bit Bayer) configuration; preregistration §4 hardware.camera.
+    # Request SBGGR12 explicitly. Newer picamera2/libcamera builds will then
+    # deliver unpacked uint16 frames; older ones still negotiate the native
+    # packed SBGGR12_CSI2P, which _ensure_unpacked_uint16 unpacks below.
     config = cam.create_still_configuration(
-        raw={"size": cam.sensor_resolution},
+        raw={"size": cam.sensor_resolution, "format": "SBGGR12"},
         controls={
             "ExposureTime": int(exposure_us),
             "AnalogueGain": 1.0,
@@ -130,15 +133,73 @@ def _sha256_of_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _unpack_csi2p_12bit(packed: np.ndarray, width: int) -> np.ndarray:
+    """Expand SBGGR12_CSI2P packed bytes to (h, width) uint16.
+
+    CSI-2 RAW12 layout — every 3 bytes encode 2 pixels:
+        byte 0 = high 8 bits of pixel 0
+        byte 1 = high 8 bits of pixel 1
+        byte 2 = low 4 of pixel 0 (lower nibble) | low 4 of pixel 1 (upper nibble)
+
+    Stride padding beyond ``width * 3 // 2`` bytes is dropped before unpacking.
+    """
+    if width % 2 != 0:
+        raise ValueError(f"_unpack_csi2p_12bit needs even width, got {width}")
+    h, stride = packed.shape
+    bytes_per_row = width * 3 // 2
+    if stride < bytes_per_row:
+        raise ValueError(
+            f"packed stride {stride} < required {bytes_per_row} for width={width}"
+        )
+    chunks = packed[:, :bytes_per_row].reshape(h, width // 2, 3).astype(np.uint16)
+    out = np.empty((h, width), dtype=np.uint16)
+    out[:, 0::2] = (chunks[..., 0] << 4) | (chunks[..., 2] & 0x0F)
+    out[:, 1::2] = (chunks[..., 1] << 4) | (chunks[..., 2] >> 4)
+    return out
+
+
+def _ensure_unpacked_uint16(
+    arr: np.ndarray, width: int, height: int
+) -> np.ndarray:
+    """Normalize picamera2's RAW buffer to a (height, width) uint16 array.
+
+    Picamera2 returns one of two shapes depending on what libcamera negotiated:
+      * uint16 (height, >= width): unpacked 12-bit, value LSB-aligned in 16 bits.
+      * uint8  (height, >= width * 3 // 2): SBGGR12_CSI2P packed; needs unpacking.
+
+    Anything else is raised as a configuration error rather than silently
+    returning bogus pixel values (the original bug this guards against).
+    """
+    if arr.ndim != 2 or arr.shape[0] != height:
+        raise RuntimeError(
+            f"Unexpected RAW buffer: shape={arr.shape}, expected first dim == {height}."
+        )
+    if arr.dtype == np.uint16 and arr.shape[1] >= width:
+        return arr[:, :width] if arr.shape[1] != width else arr
+    if arr.dtype == np.uint8 and arr.shape[1] >= width * 3 // 2:
+        return _unpack_csi2p_12bit(arr, width)
+    raise RuntimeError(
+        f"Unexpected RAW buffer: dtype={arr.dtype}, shape={arr.shape}; "
+        f"expected uint16(h, >={width}) or uint8(h, >={width * 3 // 2}) "
+        f"with h={height}. Check picamera2 raw stream configuration."
+    )
+
+
 def _capture_one(cam: "Picamera2") -> tuple[np.ndarray, dict]:
-    """Capture one frame, returning (raw_array, picamera2_metadata)."""
+    """Capture one frame, returning (raw_array, picamera2_metadata).
+
+    The returned array is always unpacked uint16 of shape (height, width)
+    holding 12-bit Bayer values in [0, 4095]. Both unpacked SBGGR12 and
+    packed SBGGR12_CSI2P are accepted from picamera2 and normalized here.
+    """
+    raw_w, raw_h = cam.camera_configuration()["raw"]["size"]
     request = cam.capture_request()
     try:
         arr = np.asarray(request.make_array("raw"))
         metadata = request.get_metadata()
     finally:
         request.release()
-    return arr, metadata
+    return _ensure_unpacked_uint16(arr, int(raw_w), int(raw_h)), metadata
 
 
 def capture_condition(
