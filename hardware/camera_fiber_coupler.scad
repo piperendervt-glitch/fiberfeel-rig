@@ -174,6 +174,28 @@ module camera_fiber_coupler_base() {
                             d = hq_mount_hole_d_mm,
                             h = back_wall_t + 2 * eps
                         );
+
+        // --- baseplate 取付：plate 4 隅 M3 通し穴（外周 inset 5mm）---
+        for (xi = [camera_coupler_mount_inset_mm,
+                   plate_x - camera_coupler_mount_inset_mm])
+            for (yi = [camera_coupler_mount_inset_mm,
+                       plate_y - camera_coupler_mount_inset_mm])
+                translate([xi, yi, -eps])
+                    cylinder(d = m3_clearance_d_common_mm,
+                             h = plate_z + 2 * eps);
+
+        // --- bend_jig 昇降逃げ切欠き（plate +X 端、bend_jig footprint と重なる領域）---
+        translate([bj_riser_notch_x0_mm, bj_riser_notch_y0_mm, -eps])
+            cube([bj_riser_notch_x1_mm - bj_riser_notch_x0_mm,
+                  bj_riser_notch_y1_mm - bj_riser_notch_y0_mm,
+                  plate_z + 2 * eps]);
+
+        // --- LED cradle ボルト通し穴（cradle 4 隅、plate を貫通して baseplate へ）---
+        for (xi = led_cradle_bolts_part_local_x)
+            for (yi = led_cradle_bolts_part_local_y)
+                translate([xi, yi, -eps])
+                    cylinder(d = m3_clearance_d_common_mm,
+                             h = plate_z + 2 * eps);
     }
 }
 

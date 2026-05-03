@@ -8,13 +8,44 @@
 | ファイル | 用途 | 主な寸法（params.scad より） |
 |---|---|---|
 | `params.scad` | 共通パラメータ。寸法変更はここを編集して再エクスポートする | — |
-| `bend_jig_r10.scad` | POF を R=10mm の U字（180°）に拘束する曲げ治具 | 60 × 40 × 6 mm、溝 `pof_channel_width_mm × pof_channel_depth_mm` |
-| `gel_mold.scad` | ゲル/PDMSパッド成形モールド | 38 × 38 × 7 mm、キャビティ 30 × 30 × 3 mm、抜き勾配 1° |
-| `led_fiber_coupler.scad` | 5mm 砲弾型 LED と POF 端面を同軸に保持 | φ15 × 18 mm |
+| `baseplate.scad` | Phase 1 装置の位置決め基板 + bend_jig 昇降パッド（17.1mm）統合 | 175 × 175 × 5 mm、4 隅 M3 で enclosure 既存ナットトラップに固定 |
+| `bend_jig_r10.scad` | POF を R=10mm の U字（180°）に拘束する曲げ治具。上面に Ø35×1mm 位置決め凹あり | 60 × 40 × 6 mm、溝 `pof_channel_width_mm × pof_channel_depth_mm` |
+| `gel_mold.scad` | ゲル/PDMSパッド成形モールド（オフライン治具、装置に乗らない） | 38 × 38 × 7 mm、キャビティ 30 × 30 × 3 mm、抜き勾配 1° |
+| `led_fiber_coupler.scad` | 5mm 砲弾型 LED と POF 端面を同軸に保持 + 保持クレードル（同ファイル内に 2 モジュール） | coupler φ15 × 26 mm、cradle 26 × 24 × 33.5 mm |
 | `led_back_cap.scad` | LED 砲弾の根元を覆い、`led_fiber_coupler` の LED 穴を底面側から密閉する遮光蓋 | φ15 × 5 mm + 圧入突起 φ5.1 × 2 mm |
-| `camera_fiber_coupler.scad` | Pi HQ Camera M12 + ファイバーホルダ（同ファイル内に2モジュール） | ベース 120 × 60 × 4 mm、ホルダ 25 × 25 × 30 mm |
-| `weight_guide.scad` | ゲルパッド上に錘を中心配置するガイド | 35 × 35 × 7 mm、凹み φ25 × 5 mm |
+| `camera_fiber_coupler.scad` | Pi HQ Camera M12 + ファイバーホルダ。プレートに baseplate 取付穴・bend_jig 昇降逃げ切欠き・LED cradle ボルト通し穴を含む | ベース 120 × 60 × 4 mm、ホルダ 25 × 25 × 30 mm |
+| `weight_guide.scad` | ゲルパッド上に錘を中心配置するガイド（円柱磁石 / 六角ナット両対応） | 45 × 45 × 28 mm、凹 φ35 × 25 mm |
 | `enclosure.scad` | 遮光ボックス本体 + 蓋（同ファイル内に2モジュール、`display_mode` で出力切替） | 外形 180 × 180 × 100 mm、壁 1.6 mm、蓋 厚 2 mm + lip 5 mm |
+
+## Phase 1 装置レイアウト（U 字 180°、共通 POF 軸 z = 23 mm）
+
+```
+baseplate-local 座標（左下原点、単位 mm）:
+        +Y
+         ^
+   175 +-+---------------------------------------+
+       | |                                       |
+       | |  +--------------------+               |
+       | |  | camera_fiber_coup. |        +----+ |
+       | |  | (0..120, 67..127)  |        |    | |
+       | |  |  +-----------------|--------|bend|-|--- POF outlet y=97.5
+       | |  |  | LED cradle      | =      |jig | |
+       | |  |  | (89..115,       | notch  |    | |
+       | |  |  |  65..89)        | 5×40   |    |-|--- POF inlet  y=77.5
+       | |  +--+----+------------+--------+----+ |
+       | |          ^                            |
+       | |   workspace 90×90 (PDMS / 重り)       |
+     0 +-+---------------------------------------+
+         0                                     175  -> +X
+```
+
+- **POF 軸 z = pof_axis_z_above_baseplate_mm (= 23 mm)**：camera_fiber_coupler の sensor center に揃える固定値。bend_jig は 17.1 mm の昇降パッド経由で同 z に上げる。
+- **POF 経路 (U 字 180°)**：LED cradle (-X) → bend_jig POF inlet (115, 77.5) → 半円弧 31.4 mm → bend_jig POF outlet (115, 97.5) → camera_fiber_coupler fiber_holder。LED と camera は **同じ -X 側に並ぶ**（U 字なので）。
+- **POF 全長 150 mm** の内訳は `params.scad` の `pof_*_mm` 群を参照。`pof_total_length_mm` を変更すれば `pof_slack_mm` が連動して更新される。
+- **bend_jig 昇降パッド**：baseplate に 17.1 mm 統合（baseplate 本体厚 5 mm + パッド 17.1 mm = 局所厚 22.1 mm）。bend_jig 4 隅 M3 を上から差し、パッド上面の 4 隅ナットポケットでクランプ。
+- **LED cradle**：camera プレート上面 4 隅貫通穴を通り、baseplate 4 隅ナットポケットでクランプ。
+- **camera_fiber_coupler プレート切欠き**：bend_jig 昇降との重なり (5×40 mm at +X 端、Y=0..40 part-local) を回避。
+- **enclosure 既存 4 隅ナットトラップ** ((20,20),(160,20),(20,160),(160,160) in enclosure 外形座標) は変更不要、baseplate 4 隅 M3 で活用。
 
 > **検証ステータス**: OpenSCAD レンダ・印刷とも未実施。CAD 上で形状を確認してから実印刷に移ること。
 > 寸法と機械的整合性は Phase 0 (shakedown) で実機検証する前提。
@@ -32,9 +63,10 @@
 
 | ファイル | 印刷向き |
 |---|---|
-| `bend_jig_r10.scad` | 上面（U字溝側）を上向き。サポート不要。|
+| `baseplate.scad` | 底面を build plate に密着、bend_jig 昇降パッド側を上に。サポート不要。|
+| `bend_jig_r10.scad` | 上面（U字溝側 + 位置決め凹）を上向き。サポート不要。|
 | `gel_mold.scad` | 開口部を上向き、底面 build plate 密着。|
-| `led_fiber_coupler.scad` | 軸を垂直に立て、LED 挿入側を上にして印刷。|
+| `led_fiber_coupler.scad` | coupler は軸を垂直に立て、LED 挿入側を上にして印刷。cradle はポケット側を上、底面 build plate 密着。|
 | `led_back_cap.scad` | 円盤を build plate に密着、圧入突起を上向き。サポート不要。黒フィラメント + infill 50%↑ 推奨。|
 | `camera_fiber_coupler.scad` | ベースはプレートをフラットに。ホルダは POF 穴を水平にして真円度確保。|
 | `weight_guide.scad` | 凹み側を上に。|

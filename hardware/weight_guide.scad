@@ -7,12 +7,14 @@
 
 include <params.scad>
 
-guide_x = weight_pad_outer_mm;        // 35
-guide_y = weight_pad_outer_mm;        // 35
-guide_z = 7;
+// Phase 1：Ø35×25mm 凹（円柱磁石 Ø10×2mm の積み重ね 48/96 個、または六角ナット
+// を共通の凹に収める）。上面開放、上端から重りが突き出る運用。
+guide_x = weight_guide_outer_mm;        // 45
+guide_y = weight_guide_outer_mm;        // 45
+guide_z = weight_guide_thickness_mm;    // 28（凹深 25 + 床 3）
 
-recess_d = weight_recess_diameter_mm;        // 25
-recess_h = weight_recess_depth_mm;           // 5
+recess_d = weight_cavity_d_mm;          // 35
+recess_h = weight_cavity_h_mm;          // 25
 
 // 十字リブ（接触面積を中心 1 点近傍に集約）
 rib_thickness = 0.5;     // ゲル接触面からの突き出し厚（z 方向）

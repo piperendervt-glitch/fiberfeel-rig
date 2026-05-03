@@ -83,4 +83,58 @@ module led_fiber_coupler() {
     }
 }
 
+// ============================================
+// (2) LED cradle（別パーツ）
+// led_fiber_coupler を baseplate（camera_fiber_coupler プレート貫通）上で
+// 共通 POF 軸 z = pof_axis_z_above_baseplate_mm に保持する。
+// 内部 Ø15 半円ポケットで coupler 円筒を抱きとめ、上から M3 で固定。
+// 印刷向き：底面を build plate に密着、ポケット側を上向き。サポート不要。
+// ============================================
+module led_cradle() {
+    cw   = led_cradle_outer_w_mm;
+    cl   = 26;                                // = LED coupler 長
+    ch   = led_cradle_outer_h_mm;
+    wall = led_cradle_wall_mm;
+    // ポケット軸 z（cradle ローカル底面 z=0 基準）= pof_axis_z_above_baseplate_mm
+    axis_z = pof_axis_z_above_baseplate_mm;
+    pocket_d = coupler_d + 0.4;               // Ø15.4（嵌合余裕）
+
+    difference() {
+        // 外形
+        cube([cl, cw, ch]);
+
+        // 円筒ポケット（cradle 長さを X 方向に貫通）
+        translate([-eps, cw / 2, axis_z])
+            rotate([0, 90, 0])
+                cylinder(d = pocket_d, h = cl + 2 * eps);
+
+        // 上面開口（円筒上半分を露出させて抜き差しを容易にする）
+        translate([-eps, wall, axis_z])
+            cube([cl + 2 * eps, cw - 2 * wall, ch - axis_z + eps]);
+
+        // 4 隅 M3 通し穴（baseplate に貫通）
+        for (xi = [led_cradle_mount_inset_mm,
+                   cl - led_cradle_mount_inset_mm])
+            for (yi = [led_cradle_mount_inset_mm,
+                       cw - led_cradle_mount_inset_mm])
+                translate([xi, yi, -eps])
+                    cylinder(d = m3_clearance_d_common_mm,
+                             h = ch + 2 * eps);
+
+        // LED リード逃げ：-X 端面（LED 側）に Ø7 の通し穴を pof 軸高さで切る
+        translate([-eps, cw / 2, axis_z])
+            rotate([0, 90, 0])
+                cylinder(d = lead_zagri_d + 0.4, h = wall + eps);
+    }
+}
+
+// ============================================
+// レンダ選択
+// 既定は coupler 単体（既存挙動）。assembly 表示する場合は下行を使う。
+// ============================================
 led_fiber_coupler();
+// led_cradle();
+// 組立プレビュー：coupler を cradle 内に寝かせた状態
+// translate([0, led_cradle_outer_w_mm / 2, pof_axis_z_above_baseplate_mm])
+//     rotate([0, 90, 0]) led_fiber_coupler();
+// led_cradle();

@@ -76,6 +76,15 @@ module mount_holes() {
             cylinder(d = mount_hole_d, h = plate_h + 2 * eps);
 }
 
+// 上面 重り位置決め凹（PDMS パッド中央＝U 字 bend 中央に同心）
+// Ø35×1mm。PDMS パッドが乗る位置の輪郭ガイドとして機能、構造体ではない。
+module weight_position_recess() {
+    translate([bend_center_x, bend_center_y,
+               plate_h - weight_recess_on_jig_h_mm])
+        cylinder(d = weight_recess_on_jig_d_mm,
+                 h = weight_recess_on_jig_h_mm + eps);
+}
+
 module bend_jig_r10() {
     difference() {
         // ベースプレート
@@ -94,6 +103,9 @@ module bend_jig_r10() {
 
         // 4 隅 M3 貫通
         mount_holes();
+
+        // 上面 PDMS / 重り位置決め凹（Ø35×1mm）
+        weight_position_recess();
     }
 }
 
