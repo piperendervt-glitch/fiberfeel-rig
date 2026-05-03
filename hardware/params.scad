@@ -18,7 +18,7 @@ bend_straight_run_mm = 30;                    // 曲げ部前後の直線部長�
 
 // --- LED ---
 led_diameter_mm = 5.1;                        // 5mm砲弾型 + クリアランス
-led_body_depth_mm = 8.0;                      // LED 本体（リード除く）の埋め込み深さ。Ø5.1 LED 穴の長さ。
+led_body_depth_mm = 10.0;                     // Ø5.1 LED 穴の長さ。LED 砲弾 8mm + 2mm の余裕（嵌合許容差）。
 led_lead_clearance_mm = 5.0;                  // リード逃げ Ø7 ザグリの深さ。LED 穴より底面側に積む。
 
 // --- LED back cap（led_fiber_coupler の LED 側穴を密閉する遮光蓋）---
