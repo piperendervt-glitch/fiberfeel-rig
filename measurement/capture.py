@@ -197,12 +197,21 @@ def _ensure_unpacked_uint16(
 ) -> np.ndarray:
     """Normalize picamera2's RAW buffer to a (height, width) uint16 array.
 
-    Picamera2 returns one of two shapes depending on what libcamera negotiated:
-      * uint16 (height, >= width): unpacked 12-bit, value LSB-aligned in 16 bits.
-      * uint8  (height, >= width * 3 // 2): SBGGR12_CSI2P packed; needs unpacking.
+    Three encodings are observed across libcamera / picamera2 versions:
 
-    Anything else is raised as a configuration error rather than silently
-    returning bogus pixel values (the original bug this guards against).
+      * uint16 (height, >= width): already-unpacked 12-bit, LSB-aligned in 16
+        bits. Native dtype, just trim row stride padding.
+      * uint8  (height, >= width * 2): uint16 LE bytes returned through a
+        uint8 view. Observed on Raspberry Pi OS Trixie with libcamera
+        v0.7.0+rpt20260205. Reinterpret with view(np.uint16).
+      * uint8  (height, >= width * 3 // 2): SBGGR12_CSI2P packed (3 bytes
+        per 2 pixels). Older libcamera builds.
+
+    The two uint8 cases are dispatched widest-stride-first; a real CSI2P
+    buffer (~ width*1.5 bytes/row) cannot reach the width*2 threshold even
+    with stride padding, so order is unambiguous in practice.
+
+    Anything else raises rather than silently returning bogus pixel values.
     """
     if arr.ndim != 2 or arr.shape[0] != height:
         raise RuntimeError(
@@ -210,12 +219,16 @@ def _ensure_unpacked_uint16(
         )
     if arr.dtype == np.uint16 and arr.shape[1] >= width:
         return arr[:, :width] if arr.shape[1] != width else arr
-    if arr.dtype == np.uint8 and arr.shape[1] >= width * 3 // 2:
-        return _unpack_csi2p_12bit(arr, width)
+    if arr.dtype == np.uint8:
+        if arr.shape[1] >= width * 2:
+            return arr.view(np.uint16)[:, :width]
+        if arr.shape[1] >= width * 3 // 2:
+            return _unpack_csi2p_12bit(arr, width)
     raise RuntimeError(
         f"Unexpected RAW buffer: dtype={arr.dtype}, shape={arr.shape}; "
-        f"expected uint16(h, >={width}) or uint8(h, >={width * 3 // 2}) "
-        f"with h={height}. Check picamera2 raw stream configuration."
+        f"expected uint16(h, >={width}), uint8(h, >={width * 2}), "
+        f"or uint8(h, >={width * 3 // 2}) with h={height}. "
+        "Check picamera2 raw stream configuration."
     )
 
 
