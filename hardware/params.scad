@@ -27,7 +27,7 @@ led_back_cap_thickness_mm          = 5.0;     // 円盤厚
 led_back_cap_lead_hole_diameter_mm = 1.2;     // LED リード線通し穴
 led_back_cap_lead_hole_pitch_mm    = 2.54;    // 標準 0.1" ピッチ
 led_back_cap_press_fit_diameter_mm = 5.1;     // led_fiber_coupler の LED 穴と同径
-led_back_cap_press_fit_depth_mm    = 2.0;     // 圧入突起の高さ
+led_back_cap_press_fit_depth_mm    = 6.0;     // 圧入突起の高さ（うち 5mm が Ø7 ザグリを通過、上端 1mm が Ø5.1 LED 穴に食い込んで圧入）
 
 // --- ゲル/PDMS パッド ---
 pad_size_mm = 30;                             // 30 x 30 mm
