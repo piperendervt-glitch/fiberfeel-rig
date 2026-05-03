@@ -98,6 +98,13 @@ def randomized_phase1_order(conditions: list[dict], seed: int) -> list[str]:
 
 
 def _build_picam(exposure_us: int, fps: float) -> "Picamera2":
+    """Configure and start the Picamera2 streaming pipeline.
+
+    The returned camera is already streaming. The caller is responsible for
+    calling :func:`_apply_camera_controls` once before measurement (to lock
+    in ExposureTime / AnalogueGain after start) and ``cam.stop()`` at the
+    end of the session.
+    """
     if Picamera2 is None:
         raise RuntimeError(
             "picamera2 is not importable. capture.py must run on a Raspberry Pi "
@@ -122,7 +129,34 @@ def _build_picam(exposure_us: int, fps: float) -> "Picamera2":
         },
     )
     cam.configure(config)
+    cam.start()
     return cam
+
+
+def _apply_camera_controls(cam: "Picamera2", exposure_us: int) -> None:
+    """Force ExposureTime / gain to take effect on a running camera.
+
+    Picamera2 docs (Camera Controls): controls passed to
+    create_still_configuration are only the *initial* values applied at the
+    start of streaming; reliable runtime control needs an explicit
+    set_controls() after start(). Without this, ExposureTime requests are
+    silently ignored — which is exactly the symptom that motivated this
+    function (CLI exposure 100us..50000us all returning saturated frames).
+
+    The first 2-3 frames after set_controls still carry the previous sensor
+    state; discard them before any measurement frame is captured.
+    """
+    cam.set_controls(
+        {
+            "ExposureTime": int(exposure_us),
+            "AnalogueGain": 1.0,
+            "AeEnable": False,
+            "AwbEnable": False,
+        }
+    )
+    for _ in range(3):
+        request = cam.capture_request()
+        request.release()
 
 
 def _sha256_of_file(path: Path) -> str:
@@ -215,30 +249,30 @@ def capture_condition(
     ``frame_idx_start`` lets callers stack multiple repetitions of the same
     condition into one session_dir without filename collisions; rep_00 might
     use 0..29, rep_01 then 30..59, and so on.
+
+    The camera must already be started (and warmed up via
+    :func:`_apply_camera_controls`); the caller is responsible for
+    ``cam.stop()`` at the end of the whole session.
     """
     session_dir.mkdir(parents=True, exist_ok=True)
-    cam.start()
     frames_meta: list[dict] = []
-    try:
-        for i in range(n_frames):
-            frame_idx = frame_idx_start + i
-            arr, picam_meta = _capture_one(cam)
-            npy_path = session_dir / f"{condition_id}_{frame_idx:03d}.npy"
-            np.save(npy_path, arr)
-            frames_meta.append(
-                {
-                    "condition_id": condition_id,
-                    "frame_idx": frame_idx,
-                    "filename": npy_path.name,
-                    "captured_at_iso": _utc_iso(),
-                    "ExposureTime_us": picam_meta.get("ExposureTime"),
-                    "AnalogueGain": picam_meta.get("AnalogueGain"),
-                    "SensorTimestamp_ns": picam_meta.get("SensorTimestamp"),
-                    "sha256": _sha256_of_file(npy_path),
-                }
-            )
-    finally:
-        cam.stop()
+    for i in range(n_frames):
+        frame_idx = frame_idx_start + i
+        arr, picam_meta = _capture_one(cam)
+        npy_path = session_dir / f"{condition_id}_{frame_idx:03d}.npy"
+        np.save(npy_path, arr)
+        frames_meta.append(
+            {
+                "condition_id": condition_id,
+                "frame_idx": frame_idx,
+                "filename": npy_path.name,
+                "captured_at_iso": _utc_iso(),
+                "ExposureTime_us": picam_meta.get("ExposureTime"),
+                "AnalogueGain": picam_meta.get("AnalogueGain"),
+                "SensorTimestamp_ns": picam_meta.get("SensorTimestamp"),
+                "sha256": _sha256_of_file(npy_path),
+            }
+        )
     return frames_meta
 
 
@@ -274,67 +308,71 @@ def run_phase1(
     fps = float(run_cfg["camera"]["frame_rate_fps"])
     exposure_us = int(run_cfg["camera"]["ExposureTime_us"])
     cam = _build_picam(exposure_us, fps)
+    try:
+        _apply_camera_controls(cam, exposure_us)
 
-    metadata: dict[str, Any] = {
-        "session_id": run_cfg["session"]["session_id"],
-        "operator": run_cfg["session"]["operator"],
-        "phase": "phase1",
-        "started_at_iso": _utc_iso(),
-        "random_seed": seed,
-        "phase1_order": order,
-        "camera": run_cfg["camera"],
-        "frames": [],
-    }
+        metadata: dict[str, Any] = {
+            "session_id": run_cfg["session"]["session_id"],
+            "operator": run_cfg["session"]["operator"],
+            "phase": "phase1",
+            "started_at_iso": _utc_iso(),
+            "random_seed": seed,
+            "phase1_order": order,
+            "camera": run_cfg["camera"],
+            "frames": [],
+        }
 
-    # §7: 冒頭・中央・末尾の C-CTRL-BL と冒頭末尾の C-CTRL-DARK / C-CTRL-SHAM。
-    head_seq = ["C-CTRL-DARK", "C-CTRL-SHAM", "C-CTRL-BL"]
-    tail_seq = ["C-CTRL-BL", "C-CTRL-SHAM", "C-CTRL-DARK"]
-    mid_idx = len(order) // 2
-    full_plan: list[tuple[str, str]] = (
-        [("control", c) for c in head_seq]
-        + [("phase1", order[i]) for i in range(mid_idx)]
-        + [("control", "C-CTRL-BL")]
-        + [("phase1", order[i]) for i in range(mid_idx, len(order))]
-        + [("control", c) for c in tail_seq]
-    )
-
-    # frame_idx is global per (session, condition_id). Repetitions of the same
-    # condition (e.g. C-CTRL-BL appearing 3+ times) get contiguous indices
-    # rather than separate subdirectories — keeps filenames flat per the new
-    # naming convention <condition_id>_<frame_idx:03d>.npy.
-    next_idx: dict[str, int] = {}
-    rep_count: dict[str, int] = {}
-    for kind, cid in full_plan:
-        spec = cond_by_id.get(cid) if kind == "phase1" else controls_by_id.get(cid)
-        rep = rep_count.get(cid, 0)
-        rep_count[cid] = rep + 1
-        idx_start = next_idx.get(cid, 0)
-        idx_end = idx_start + FRAMES_PER_CONDITION - 1
-
-        _operator_action_prompt(
-            f"Set up condition {cid} (rep {rep}): {spec}\n"
-            f"        Frames: {cid}_{idx_start:03d}.npy ... {cid}_{idx_end:03d}.npy"
+        # §7: 冒頭・中央・末尾の C-CTRL-BL と冒頭末尾の C-CTRL-DARK / C-CTRL-SHAM。
+        head_seq = ["C-CTRL-DARK", "C-CTRL-SHAM", "C-CTRL-BL"]
+        tail_seq = ["C-CTRL-BL", "C-CTRL-SHAM", "C-CTRL-DARK"]
+        mid_idx = len(order) // 2
+        full_plan: list[tuple[str, str]] = (
+            [("control", c) for c in head_seq]
+            + [("phase1", order[i]) for i in range(mid_idx)]
+            + [("control", "C-CTRL-BL")]
+            + [("phase1", order[i]) for i in range(mid_idx, len(order))]
+            + [("control", c) for c in tail_seq]
         )
-        frames_meta = capture_condition(
-            cam,
-            session_dir=session_dir,
-            condition_id=cid,
-            n_frames=FRAMES_PER_CONDITION,
-            frame_idx_start=idx_start,
-        )
-        for fm in frames_meta:
-            fm["kind"] = kind
-            fm["repetition"] = rep
-            fm["condition_spec"] = spec
-        metadata["frames"].extend(frames_meta)
-        next_idx[cid] = idx_start + FRAMES_PER_CONDITION
 
-    metadata["finished_at_iso"] = _utc_iso()
-    write_metadata(
-        session_dir, metadata,
-        run_cfg["output"].get("metadata_filename", "metadata.yaml"),
-    )
-    return metadata
+        # frame_idx is global per (session, condition_id). Repetitions of the same
+        # condition (e.g. C-CTRL-BL appearing 3+ times) get contiguous indices
+        # rather than separate subdirectories — keeps filenames flat per the new
+        # naming convention <condition_id>_<frame_idx:03d>.npy.
+        next_idx: dict[str, int] = {}
+        rep_count: dict[str, int] = {}
+        for kind, cid in full_plan:
+            spec = cond_by_id.get(cid) if kind == "phase1" else controls_by_id.get(cid)
+            rep = rep_count.get(cid, 0)
+            rep_count[cid] = rep + 1
+            idx_start = next_idx.get(cid, 0)
+            idx_end = idx_start + FRAMES_PER_CONDITION - 1
+
+            _operator_action_prompt(
+                f"Set up condition {cid} (rep {rep}): {spec}\n"
+                f"        Frames: {cid}_{idx_start:03d}.npy ... {cid}_{idx_end:03d}.npy"
+            )
+            frames_meta = capture_condition(
+                cam,
+                session_dir=session_dir,
+                condition_id=cid,
+                n_frames=FRAMES_PER_CONDITION,
+                frame_idx_start=idx_start,
+            )
+            for fm in frames_meta:
+                fm["kind"] = kind
+                fm["repetition"] = rep
+                fm["condition_spec"] = spec
+            metadata["frames"].extend(frames_meta)
+            next_idx[cid] = idx_start + FRAMES_PER_CONDITION
+
+        metadata["finished_at_iso"] = _utc_iso()
+        write_metadata(
+            session_dir, metadata,
+            run_cfg["output"].get("metadata_filename", "metadata.yaml"),
+        )
+        return metadata
+    finally:
+        cam.stop()
 
 
 def run_baseline(run_cfg: dict[str, Any], session_dir: Path) -> dict:
@@ -342,38 +380,42 @@ def run_baseline(run_cfg: dict[str, Any], session_dir: Path) -> dict:
     fps = float(run_cfg["camera"]["frame_rate_fps"])
     exposure_us = int(run_cfg["camera"]["ExposureTime_us"])
     cam = _build_picam(exposure_us, fps)
+    try:
+        _apply_camera_controls(cam, exposure_us)
 
-    metadata: dict[str, Any] = {
-        "session_id": run_cfg["session"]["session_id"],
-        "operator": run_cfg["session"]["operator"],
-        "phase": "baseline",
-        "started_at_iso": _utc_iso(),
-        "camera": run_cfg["camera"],
-    }
-
-    _operator_action_prompt(
-        "Mount straight fiber (no bend, no PDMS, no weight). "
-        "Confirm LED warmed up >= 30 minutes."
-    )
-    frames_meta = capture_condition(
-        cam,
-        session_dir=session_dir,
-        condition_id=BASELINE_CONDITION_ID,
-        n_frames=BASELINE_FRAMES,
-    )
-
-    metadata.update(
-        {
-            "frames": frames_meta,
-            "n_frames": len(frames_meta),
-            "finished_at_iso": _utc_iso(),
+        metadata: dict[str, Any] = {
+            "session_id": run_cfg["session"]["session_id"],
+            "operator": run_cfg["session"]["operator"],
+            "phase": "baseline",
+            "started_at_iso": _utc_iso(),
+            "camera": run_cfg["camera"],
         }
-    )
-    write_metadata(
-        session_dir, metadata,
-        run_cfg["output"].get("metadata_filename", "metadata.yaml"),
-    )
-    return metadata
+
+        _operator_action_prompt(
+            "Mount straight fiber (no bend, no PDMS, no weight). "
+            "Confirm LED warmed up >= 30 minutes."
+        )
+        frames_meta = capture_condition(
+            cam,
+            session_dir=session_dir,
+            condition_id=BASELINE_CONDITION_ID,
+            n_frames=BASELINE_FRAMES,
+        )
+
+        metadata.update(
+            {
+                "frames": frames_meta,
+                "n_frames": len(frames_meta),
+                "finished_at_iso": _utc_iso(),
+            }
+        )
+        write_metadata(
+            session_dir, metadata,
+            run_cfg["output"].get("metadata_filename", "metadata.yaml"),
+        )
+        return metadata
+    finally:
+        cam.stop()
 
 
 def run_shakedown(
@@ -392,28 +434,28 @@ def run_shakedown(
     not feed §6 conditions or the §9 analysis pipeline.
     """
     cam = _build_picam(exposure_us, fps)
-    if save_to is not None:
-        save_to.mkdir(parents=True, exist_ok=True)
-
-    sat_threshold = RAW_FULL_SCALE_12BIT * SATURATION_FRACTION
-    low_threshold = RAW_FULL_SCALE_12BIT * LOW_BRIGHTNESS_FRACTION
-    half = roi_side // 2
-
-    print("[SHAKEDOWN] engineering mode — OUTSIDE preregistration scope.", flush=True)
-    print(
-        f"[SHAKEDOWN] exposure={exposure_us}us  frames={n_frames}  "
-        f"save_to={save_to}  roi={roi_side}x{roi_side}",
-        flush=True,
-    )
-    print(
-        f"[SHAKEDOWN] thresholds (12-bit full={RAW_FULL_SCALE_12BIT}): "
-        f"saturation if max > {sat_threshold:.0f}; "
-        f"low-brightness if mean < {low_threshold:.1f}",
-        flush=True,
-    )
-
-    cam.start()
     try:
+        _apply_camera_controls(cam, exposure_us)
+        if save_to is not None:
+            save_to.mkdir(parents=True, exist_ok=True)
+
+        sat_threshold = RAW_FULL_SCALE_12BIT * SATURATION_FRACTION
+        low_threshold = RAW_FULL_SCALE_12BIT * LOW_BRIGHTNESS_FRACTION
+        half = roi_side // 2
+
+        print("[SHAKEDOWN] engineering mode — OUTSIDE preregistration scope.", flush=True)
+        print(
+            f"[SHAKEDOWN] exposure={exposure_us}us  frames={n_frames}  "
+            f"save_to={save_to}  roi={roi_side}x{roi_side}",
+            flush=True,
+        )
+        print(
+            f"[SHAKEDOWN] thresholds (12-bit full={RAW_FULL_SCALE_12BIT}): "
+            f"saturation if max > {sat_threshold:.0f}; "
+            f"low-brightness if mean < {low_threshold:.1f}",
+            flush=True,
+        )
+
         for i in range(n_frames):
             arr, _picam_meta = _capture_one(cam)
             # ROI = central roi_side x roi_side region of the first 2 axes.
